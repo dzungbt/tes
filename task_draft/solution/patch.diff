@@ -1,0 +1,741 @@
+diff --git a/tool_znak_fe/src/app/(app)/spaces-list/page.tsx b/tool_znak_fe/src/app/(app)/spaces-list/page.tsx
+new file mode 100644
+index 0000000..a6003b9
+--- /dev/null
++++ b/tool_znak_fe/src/app/(app)/spaces-list/page.tsx
+@@ -0,0 +1,130 @@
++"use client";
++
++import { useState } from "react";
++import Link from "next/link";
++import { useRouter } from "next/navigation";
++import { useInfiniteQuery } from "@tanstack/react-query";
++import { Alert, Button, Segmented, Typography } from "antd";
++import { PlusOutlined } from "@ant-design/icons";
++import { t, tr } from "@/i18n";
++import { createSpace, listSpaces, type SpacesPage } from "@/lib/api/spaces";
++
++interface RawNode { id: string; type?: string; data?: { src?: string; videoSrc?: string; selectedUrl?: string } }
++interface RawSpace { space_id: number; name: string | null; updated_at: string | null; graph: { nodes?: RawNode[] } | null }
++interface Result { url: string; kind: "image" | "video" }
++
++function toResults(nodes: RawNode[]): Result[] {
++  const generated: Result[] = [];
++  const picked: Result[] = [];
++  for (const n of nodes) {
++    if (n.data?.videoSrc) generated.push({ url: n.data.videoSrc, kind: "video" });
++    else if (n.type === "image-generator" && n.data?.src) generated.push({ url: n.data.src, kind: "image" });
++    else if (n.data?.selectedUrl) picked.push({ url: n.data.selectedUrl, kind: "image" });
++  }
++  const seen = new Set<string>();
++  return [...generated, ...picked].filter((r) => (seen.has(r.url) ? false : (seen.add(r.url), true)));
++}
++
++function timeAgo(then: number): string {
++  const s = Math.max(0, Math.round((Date.now() - then) / 1000));
++  if (s < 60) return "now";
++  const m = Math.round(s / 60);
++  if (m < 60) return `${m}m ago`;
++  const h = Math.round(m / 60);
++  if (h < 24) return `${h}h ago`;
++  const d = Math.round(h / 24);
++  return d < 30 ? `${d}d ago` : `${Math.round(d / 30)}mo ago`;
++}
++
++function Card({ s }: { s: RawSpace }) {
++  const nodes = s.graph?.nodes ?? [];
++  const results = toResults(nodes).slice(0, 3);
++  const updated = s.updated_at ? new Date(s.updated_at).getTime() : null;
++  return (
++    <Link href={`/spaces?space=${s.space_id}`} style={{ display: "block", border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
++      <div style={{ display: "flex", height: 120, background: "#111" }}>
++        {results.map((r) =>
++          r.kind === "video" ? <video key={r.url} src={r.url} muted /> : <img key={r.url} src={r.url} alt="" />,
++        )}
++      </div>
++      <div style={{ padding: 12 }}>
++        <div>{tr("{0} node", [nodes.length])}</div>
++        <div>{s.name?.trim() || tr("Không gian chưa đặt tên")}</div>
++        {updated !== null && <div>{tr("Cập nhật {0}", [timeAgo(updated)])}</div>}
++      </div>
++    </Link>
++  );
++}
++
++export default function SpacesListPage() {
++  const router = useRouter();
++  const [creating, setCreating] = useState(false);
++  const [createError, setCreateError] = useState<string | null>(null);
++  const [tab, setTab] = useState("mine");
++  const q = useInfiniteQuery({
++    queryKey: ["spaces", "list"],
++    initialPageParam: 1,
++    queryFn: ({ pageParam }) => listSpaces(pageParam, 30),
++    getNextPageParam: (last: SpacesPage) => ((last.current_page ?? 1) < (last.last_page ?? 1) ? (last.current_page ?? 1) + 1 : undefined),
++  });
++  const spaces = (q.data?.pages ?? []).flatMap((p) => (p.data ?? []) as RawSpace[]);
++
++  async function onCreate() {
++    if (creating) return;
++    setCreating(true);
++    setCreateError(null);
++    try {
++      const res = await createSpace();
++      if (res?.space_id) router.push(`/spaces?space=${res.space_id}`);
++    } catch (e) {
++      setCreateError(e instanceof Error ? e.message : String(e));
++    } finally {
++      setCreating(false);
++    }
++  }
++
++  return (
++    <div style={{ padding: 24 }}>
++      <Typography.Title level={3}>{tr("Không gian sáng tạo")}</Typography.Title>
++      <Typography.Paragraph>{tr("Xây dựng pipeline sinh ảnh/video dạng node và biến ý tưởng thành hiện thực.")}</Typography.Paragraph>
++      <Button type="primary" icon={<PlusOutlined />} onClick={onCreate} disabled={creating}>
++        {tr("Không gian mới")}
++      </Button>
++      {createError && <Alert type="error" showIcon message={createError} />}
++      <Segmented
++        value={tab}
++        onChange={(v) => setTab(String(v))}
++        options={[
++          { label: tr("Của tôi"), value: "mine" },
++          { label: tr("Được chia sẻ"), value: "shared", disabled: true },
++          { label: tr("Mẫu có sẵn"), value: "templates", disabled: true },
++          { label: tr("Luồng"), value: "flows", disabled: true },
++        ]}
++      />
++      {tab === "mine" && (
++        <>
++          {q.isError && (
++            <Alert
++              type="error"
++              showIcon
++              message={q.error instanceof Error ? q.error.message : String(q.error)}
++              action={!q.data ? <Button size="small" onClick={() => q.refetch()}>{t.common.retry}</Button> : undefined}
++            />
++          )}
++          {spaces.length === 0 && !q.isLoading && !q.isError ? (
++            <p>{tr("Chưa có không gian nào — tạo một cái để bắt đầu.")}</p>
++          ) : (
++            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
++              {spaces.map((s) => <Card key={s.space_id} s={s} />)}
++            </div>
++          )}
++          {q.hasNextPage && (
++            <Button loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
++              {tr("Xem thêm")}
++            </Button>
++          )}
++        </>
++      )}
++    </div>
++  );
++}
+diff --git a/tool_znak_fe/src/app/(app)/spaces/page.tsx b/tool_znak_fe/src/app/(app)/spaces/page.tsx
+new file mode 100644
+index 0000000..efd1b44
+--- /dev/null
++++ b/tool_znak_fe/src/app/(app)/spaces/page.tsx
+@@ -0,0 +1,12 @@
++"use client";
++
++import { Suspense } from "react";
++import { SpacesCanvasPage } from "@/features/spaces/SpacesCanvasPage";
++
++export default function SpacesPage() {
++  return (
++    <Suspense fallback={null}>
++      <SpacesCanvasPage />
++    </Suspense>
++  );
++}
+diff --git a/tool_znak_fe/src/app/api/proxy/[...path]/route.ts b/tool_znak_fe/src/app/api/proxy/[...path]/route.ts
+index 3ab85ab..2840d60 100644
+--- a/tool_znak_fe/src/app/api/proxy/[...path]/route.ts
++++ b/tool_znak_fe/src/app/api/proxy/[...path]/route.ts
+@@ -25,11 +25,12 @@ async function handle(request: NextRequest, ctx: Ctx) {
+   if (!token) return reply({ success: false, message: tr("Chưa đăng nhập."), data: null, errCode: 1 }, 401);
+ 
+   const hasBody = !["GET", "HEAD"].includes(request.method);
+-  let body: string | null = null;
++  let body: ArrayBuffer | null = null;
+   if (hasBody) {
+     const length = Number(request.headers.get("content-length") ?? 0);
+     if (length > MAX_BODY_BYTES) return reply({ success: false, message: tr("Dữ liệu gửi lên quá lớn."), data: null, errCode: 1 }, 413);
+-    body = await request.text();
++    // Đọc nguyên byte: multipart (ảnh upload) sẽ hỏng nếu đọc qua text() rồi gửi lại.
++    body = await request.arrayBuffer();
+   }
+ 
+   const search = request.nextUrl.search;
+diff --git a/tool_znak_fe/src/components/layout/AppShell.tsx b/tool_znak_fe/src/components/layout/AppShell.tsx
+index a88dc5d..29fab4a 100644
+--- a/tool_znak_fe/src/components/layout/AppShell.tsx
++++ b/tool_znak_fe/src/components/layout/AppShell.tsx
+@@ -23,6 +23,7 @@ import {
+   RobotOutlined,
+   UsbOutlined,
+   InboxOutlined,
++  PictureOutlined,
+   LeftOutlined,
+   LockOutlined,
+   LogoutOutlined,
+@@ -66,11 +67,12 @@ const ICONS: Record<string, React.ReactNode> = {
+ };
+ 
+ /** «Quản lý hệ thống» (chỉ admin): đường dẫn tuyệt đối, không theo cửa hàng. */
+-const SYSTEM_NAV: Array<{ key: string; label: string; icon: React.ReactNode; path?: string; children?: Array<{ path: string; label: string }> }> = [
++const SYSTEM_NAV: Array<{ key: string; label: string; icon: React.ReactNode; path?: string; also?: string[]; children?: Array<{ path: string; label: string }> }> = [
+   { key: "users", label: tr("Quản lý người dùng"), icon: <TeamOutlined />, path: "/admin/users" },
+   { key: "stores", label: tr("Quản lý cửa hàng"), icon: <ShopOutlined />, path: "/admin/stores" },
+   { key: "agent", label: tr("Trợ lý AI"), icon: <RobotOutlined />, path: "/admin/agent" },
+   { key: "signer-agent", label: tr("App xoay tua USB"), icon: <UsbOutlined />, path: "/admin/signer-agent" },
++  { key: "spaces", label: tr("Không gian sáng tạo"), icon: <PictureOutlined />, path: "/spaces-list", also: ["/spaces"] },
+   {
+     key: "activity",
+     label: tr("Lịch sử thao tác"),
+@@ -270,7 +272,7 @@ function SidebarContent({ storeId, pathname, collapsed, onGo, onNavigate }: Side
+               if (!g.children) {
+                 return (
+                   <Tooltip key={g.key} title={collapsed ? g.label : undefined} placement="right">
+-                    <Link href={g.path ?? "/"} className={`side-item${active(g.path) ? " active" : ""}`} onClick={onNavigate}>
++                    <Link href={g.path ?? "/"} className={`side-item${active(g.path) || (g.also ?? []).some(active) ? " active" : ""}`} onClick={onNavigate}>
+                       <span className="side-icon">{g.icon}</span>
+                       {!collapsed && <span className="side-label">{g.label}</span>}
+                     </Link>
+diff --git a/tool_znak_fe/src/features/spaces/SpacesCanvasPage.tsx b/tool_znak_fe/src/features/spaces/SpacesCanvasPage.tsx
+new file mode 100644
+index 0000000..91079cb
+--- /dev/null
++++ b/tool_znak_fe/src/features/spaces/SpacesCanvasPage.tsx
+@@ -0,0 +1,164 @@
++"use client";
++
++import "@xyflow/react/dist/style.css";
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { useSearchParams } from "next/navigation";
++import { useQuery } from "@tanstack/react-query";
++import { ReactFlow, ReactFlowProvider, useNodesState, type Node } from "@xyflow/react";
++import { Alert, App, Button, Spin, Typography } from "antd";
++import { PlusOutlined } from "@ant-design/icons";
++import { PageHeader } from "@/components/PageHeader";
++import { t, tr } from "@/i18n";
++import { getSpace, saveSpaceGraph, uploadSpaceImage, type SpaceDetail } from "@/lib/api/spaces";
++import { fitSize, maxSeq, persistNode, withFit, type UploadData, type UploadFile } from "./graph";
++import { UploadCtx, UploadNode, type UploadActions } from "./UploadNode";
++
++const AUTOSAVE_MS = 1000;
++const nodeTypes = { upload: UploadNode };
++
++type RawNode = Node & { type?: string };
++
++function Board({ spaceId, space }: { spaceId: string; space: SpaceDetail }) {
++  const { message } = App.useApp();
++  const [init] = useState(() => {
++    const all = (space.graph?.nodes ?? []) as RawNode[];
++    return {
++      nodes: all.filter((n) => n.type === "upload").map(withFit),
++      // Node khác `upload` và mọi edge không vẽ ở đây nhưng phải được gửi lại nguyên vẹn khi lưu.
++      kept: { nodes: all.filter((n) => n.type !== "upload") as unknown[], edges: (space.graph?.edges ?? []) as unknown[] },
++      seq: maxSeq(all),
++    };
++  });
++  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(init.nodes);
++  const kept = useRef(init.kept);
++  const seq = useRef(init.seq);
++  const lastSaved = useRef<string | null>(null);
++
++  const payload = useCallback(
++    (list: Node[]) => ({ nodes: [...list.map(persistNode), ...kept.current.nodes], edges: kept.current.edges }),
++    [],
++  );
++
++  useEffect(() => {
++    // Không tự lưu khi chưa có thay đổi thật so với bản vừa tải/vừa lưu (đo lại kích thước cũng đổi `nodes`).
++    const snap = JSON.stringify(payload(nodes));
++    lastSaved.current ??= snap;
++    if (snap === lastSaved.current) return;
++    const timer = setTimeout(() => {
++      lastSaved.current = snap;
++      saveSpaceGraph(spaceId, JSON.parse(snap)).catch(() => {
++        lastSaved.current = null;
++      });
++    }, AUTOSAVE_MS);
++    return () => clearTimeout(timer);
++  }, [nodes, spaceId, payload]);
++
++  const patchFile = useCallback(
++    (nodeId: string, apply: (n: Node, files: UploadFile[]) => Node) =>
++      setNodes((nds) => nds.map((n) => (n.id === nodeId ? apply(n, (n.data as UploadData).files) : n))),
++    [setNodes],
++  );
++
++  const actions = useMemo<UploadActions>(
++    () => ({
++      async pick(nodeId, file) {
++        const entryId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
++        const preview = URL.createObjectURL(file);
++        patchFile(nodeId, (n) => ({
++          ...n,
++          data: { ...n.data, files: [{ id: entryId, url: null, preview, alt: file.name, uploading: true }] },
++        }));
++        let res: Awaited<ReturnType<typeof uploadSpaceImage>> | null = null;
++        try {
++          res = await uploadSpaceImage(file);
++        } catch {
++          res = null;
++        }
++        const url = res?.url;
++        patchFile(nodeId, (n) => {
++          if (!url) return { ...n, data: { ...n.data, files: [] } };
++          const entry: UploadFile = {
++            id: entryId,
++            url,
++            thumbUrl: res?.thumb_url || undefined,
++            width: res?.width || undefined,
++            height: res?.height || undefined,
++            preview: url,
++            alt: file.name,
++            uploading: false,
++          };
++          const size = entry.width && entry.height ? fitSize(entry.width, entry.height) : {};
++          return { ...n, ...size, data: { ...n.data, files: [entry] } };
++        });
++        if (!url) message.error(tr("Tải ảnh lên máy chủ thất bại."));
++      },
++      natural(nodeId, entryId, width, height) {
++        patchFile(nodeId, (n, files) => ({
++          ...n,
++          ...fitSize(width, height),
++          data: { ...n.data, files: files.map((f) => (f.id === entryId ? { ...f, width, height } : f)) },
++        }));
++      },
++    }),
++    [patchFile, message],
++  );
++
++  function addUploadNode() {
++    seq.current += 1;
++    const n = seq.current;
++    const data: UploadData = { kind: "upload", label: `Upload #${n}`, files: [], inputs: [], outputs: [{ id: "image-out", kind: "image" }] };
++    const offset = 40 * (n % 8);
++    setNodes((nds) => [...nds, { id: `upload-${n}`, type: "upload", position: { x: 80 + offset, y: 80 + offset }, width: 300, height: 300, data }]);
++  }
++
++  return (
++    <UploadCtx.Provider value={actions}>
++      <PageHeader
++        title={space.name?.trim() || tr("Không gian chưa đặt tên")}
++        extra={<Button type="primary" icon={<PlusOutlined />} onClick={addUploadNode}>{tr("Thêm node tải lên")}</Button>}
++      />
++      <div style={{ width: "100%", height: "70vh", border: "1px solid #eee", borderRadius: 12 }}>
++        <ReactFlow nodes={nodes} onNodesChange={onNodesChange} nodeTypes={nodeTypes} fitView />
++      </div>
++    </UploadCtx.Provider>
++  );
++}
++
++function SpaceLoader({ spaceId }: { spaceId: string }) {
++  const q = useQuery({
++    queryKey: ["spaces", "detail", spaceId],
++    queryFn: () => getSpace(spaceId),
++    gcTime: 0,
++    staleTime: Infinity,
++    refetchOnWindowFocus: false,
++  });
++  if (q.isError) {
++    return (
++      <Alert
++        type="error"
++        showIcon
++        message={q.error instanceof Error ? q.error.message : String(q.error)}
++        action={<Button size="small" onClick={() => q.refetch()}>{t.common.retry}</Button>}
++      />
++    );
++  }
++  if (!q.data) return <Spin tip={tr("Đang tải không gian…")}><div style={{ padding: 48 }} /></Spin>;
++  return (
++    <ReactFlowProvider>
++      <Board spaceId={spaceId} space={q.data} />
++    </ReactFlowProvider>
++  );
++}
++
++export function SpacesCanvasPage() {
++  const spaceId = useSearchParams().get("space");
++  return (
++    <div className="page">
++      {spaceId ? (
++        <SpaceLoader key={spaceId} spaceId={spaceId} />
++      ) : (
++        <Typography.Text type="secondary">{tr("Chưa có không gian nào — tạo một cái để bắt đầu.")}</Typography.Text>
++      )}
++    </div>
++  );
++}
+diff --git a/tool_znak_fe/src/features/spaces/UploadNode.tsx b/tool_znak_fe/src/features/spaces/UploadNode.tsx
+new file mode 100644
+index 0000000..ea5fd2c
+--- /dev/null
++++ b/tool_znak_fe/src/features/spaces/UploadNode.tsx
+@@ -0,0 +1,76 @@
++"use client";
++
++import { createContext, useContext, useRef, useState } from "react";
++import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
++import { UploadOutlined } from "@ant-design/icons";
++import { tr } from "@/i18n";
++import type { UploadData } from "./graph";
++
++export interface UploadActions {
++  pick: (nodeId: string, file: File) => void;
++  natural: (nodeId: string, entryId: string, width: number, height: number) => void;
++}
++
++export const UploadCtx = createContext<UploadActions>({ pick: () => {}, natural: () => {} });
++
++export function UploadNode({ id, data, selected }: NodeProps<Node<UploadData>>) {
++  const { pick, natural } = useContext(UploadCtx);
++  const inputRef = useRef<HTMLInputElement>(null);
++  const [drag, setDrag] = useState(false);
++  const file = data.files[0];
++  const src = file ? (file.uploading ? file.preview : file.thumbUrl || file.url || file.preview) : null;
++  const known = Boolean(file?.width && file?.height);
++
++  function take(list: FileList | null) {
++    const f = Array.from(list ?? []).find((x) => x.type.startsWith("image/"));
++    if (f) pick(id, f);
++  }
++
++  return (
++    <div
++      style={{ width: "100%", height: "100%", position: "relative", background: "#1a1a1a", borderRadius: 12, overflow: "hidden" }}
++      onDragOver={(e) => e.preventDefault()}
++      onDrop={(e) => {
++        e.preventDefault();
++        setDrag(false);
++        take(e.dataTransfer.files);
++      }}
++    >
++      <NodeResizer isVisible={selected} keepAspectRatio={known} minWidth={80} minHeight={80} maxWidth={900} maxHeight={900} />
++      <input
++        ref={inputRef}
++        type="file"
++        accept="image/*"
++        hidden
++        onChange={(e) => {
++          take(e.target.files);
++          e.target.value = "";
++        }}
++      />
++      {src ? (
++        // eslint-disable-next-line @next/next/no-img-element
++        <img
++          src={src}
++          alt={file?.alt ?? ""}
++          draggable={false}
++          style={{ width: "100%", height: "100%", objectFit: "fill", display: "block", opacity: file?.uploading ? 0.5 : 1 }}
++          onLoad={(e) => {
++            const img = e.currentTarget;
++            if (file && !file.uploading && !known && img.naturalWidth) natural(id, file.id, img.naturalWidth, img.naturalHeight);
++          }}
++        />
++      ) : (
++        <button
++          type="button"
++          className="nodrag"
++          onClick={() => inputRef.current?.click()}
++          onDragEnter={() => setDrag(true)}
++          onDragLeave={() => setDrag(false)}
++          style={{ width: "100%", height: "100%", border: 0, color: "#aaa", background: drag ? "#2a2a2a" : "transparent", cursor: "pointer" }}
++        >
++          <UploadOutlined /> {tr("Thả ảnh vào đây hoặc bấm để tải lên")}
++        </button>
++      )}
++    </div>
++  );
++}
+diff --git a/tool_znak_fe/src/features/spaces/graph.ts b/tool_znak_fe/src/features/spaces/graph.ts
+new file mode 100644
+index 0000000..2d491bd
+--- /dev/null
++++ b/tool_znak_fe/src/features/spaces/graph.ts
+@@ -0,0 +1,70 @@
++import type { Node } from "@xyflow/react";
++
++/** Cạnh dài của khung node ngay sau khi ảnh vào (px). */
++export const LONG_SIDE = 320;
++
++export interface UploadFile {
++  id: string;
++  url: string | null;
++  thumbUrl?: string;
++  width?: number;
++  height?: number;
++  preview: string;
++  alt: string;
++  uploading: boolean;
++}
++
++export interface UploadData extends Record<string, unknown> {
++  kind: "upload";
++  label: string;
++  files: UploadFile[];
++  inputs: unknown[];
++  outputs: unknown[];
++}
++
++export function fitSize(width: number, height: number): { width: number; height: number } {
++  const k = LONG_SIDE / Math.max(width, height);
++  return { width: Math.round(width * k), height: Math.round(height * k) };
++}
++
++/** Node `upload` đã lưu mà chưa có kích thước riêng thì lấy khung khớp tỉ lệ ảnh. */
++export function withFit(node: Node): Node {
++  if (node.type !== "upload" || (node.width && node.height)) return node;
++  const f = (node.data as UploadData | undefined)?.files?.[0];
++  return f?.width && f?.height ? { ...node, ...fitSize(f.width, f.height) } : node;
++}
++
++export function persistNode(node: Node) {
++  const data = node.data as UploadData;
++  return {
++    id: node.id,
++    type: node.type,
++    position: node.position,
++    ...(node.width !== undefined ? { width: node.width } : {}),
++    ...(node.height !== undefined ? { height: node.height } : {}),
++    data: {
++      ...data,
++      // blob: preview không sống qua phiên; entry đang tải hoặc lỗi thì bỏ. Giữ nguyên cỡ ảnh gốc.
++      files: (data.files ?? [])
++        .filter((f) => f.url)
++        .map((f) => ({
++          id: f.id,
++          url: f.url,
++          ...(f.thumbUrl ? { thumbUrl: f.thumbUrl } : {}),
++          ...(f.width ? { width: f.width } : {}),
++          ...(f.height ? { height: f.height } : {}),
++          preview: f.url,
++          alt: f.alt,
++          uploading: false,
++        })),
++    },
++  };
++}
++
++/** Số thứ tự lớn nhất trong id dạng `<kind>-<n>` — node mới phải dùng số lớn hơn để không trùng id. */
++export function maxSeq(nodes: Array<{ id: string }>): number {
++  return nodes.reduce((max, n) => {
++    const m = /-(\d+)$/.exec(n.id);
++    return m ? Math.max(max, parseInt(m[1], 10)) : max;
++  }, 0);
++}
+diff --git a/tool_znak_fe/src/i18n/en.ts b/tool_znak_fe/src/i18n/en.ts
+index 0ab4540..8fca50d 100644
+--- a/tool_znak_fe/src/i18n/en.ts
++++ b/tool_znak_fe/src/i18n/en.ts
+@@ -3261,5 +3261,21 @@ const en: Record<string, string> = {
+  "Store Yandex chỉ đồng bộ sản phẩm.": "Yandex stores only sync products.",
+  "Store Yandex Market hiện chỉ đồng bộ sản phẩm (chỉ đọc) và in tem barcode cho hàng gửi kho FBY. Các chức năng khác bị khoá.": "Yandex Market stores currently only sync products (read-only) and print barcode labels for FBY warehouse shipments. Other features are locked.",
+  "Store Yandex Market hiện hỗ trợ: xem sản phẩm và in tem barcode cho hàng gửi kho FBY. Các chức năng khác đang khoá.": "Yandex Market stores currently support: viewing products and printing barcode labels for FBY warehouse shipments. Other features are locked.",
++ "Không gian sáng tạo": "Spaces",
++ "Xây dựng pipeline sinh ảnh/video dạng node và biến ý tưởng thành hiện thực.": "Build node-based generative workflows and bring your ideas to life.",
++ "Của tôi": "My spaces",
++ "Được chia sẻ": "Shared",
++ "Mẫu có sẵn": "Templates",
++ "Luồng": "Flows",
++ "Không gian mới": "New space",
++ "Không gian chưa đặt tên": "Untitled space",
++ "Chưa có không gian nào — tạo một cái để bắt đầu.": "No spaces yet — create one to get started.",
++ "Xem thêm": "Load more",
++ "{0} node": "{0} nodes",
++ "Cập nhật {0}": "Updated {0}",
++ "Thêm node tải lên": "Add upload node",
++ "Thả ảnh vào đây hoặc bấm để tải lên": "Drop an image here or click to upload",
++ "Tải ảnh lên máy chủ thất bại.": "Upload to the server failed.",
++ "Đang tải không gian…": "Loading space…",
+ };
+ export default en;
+diff --git a/tool_znak_fe/src/i18n/ru.add.ts b/tool_znak_fe/src/i18n/ru.add.ts
+index 4f60345..538c4cc 100644
+--- a/tool_znak_fe/src/i18n/ru.add.ts
++++ b/tool_znak_fe/src/i18n/ru.add.ts
+@@ -1027,5 +1027,21 @@ const add: Record<string, string> = {
+  "Nhân viên (ERP)": "Сотрудник (ERP)",
+  "Nhân viên đăng nhập qua ERP: tên, email, mật khẩu và trạng thái do ERP quản lý. Ở đây chỉ gán cửa hàng và chức năng.": "Сотрудник входит через ERP: имя, email, пароль и статус управляются в ERP. Здесь только назначаются магазины и функции.",
+  "Một cửa hàng có thể do nhiều người dùng quản lý. Admin (StoreHub Admin ở ERP) tự thấy mọi cửa hàng nên không cần thêm; nhân viên ERP chỉ thấy cửa hàng được thêm vào đây.": "Магазином могут управлять несколько пользователей. Админы (StoreHub Admin в ERP) видят все магазины автоматически; сотрудники ERP видят только добавленные здесь.",
++ "Không gian sáng tạo": "Пространства",
++ "Xây dựng pipeline sinh ảnh/video dạng node và biến ý tưởng thành hiện thực.": "Стройте генеративные пайплайны.",
++ "Của tôi": "Мои",
++ "Được chia sẻ": "Общие",
++ "Mẫu có sẵn": "Шаблоны",
++ "Luồng": "Потоки",
++ "Không gian mới": "Новое пространство",
++ "Không gian chưa đặt tên": "Без названия",
++ "Chưa có không gian nào — tạo một cái để bắt đầu.": "Пока пусто.",
++ "Xem thêm": "Ещё",
++ "{0} node": "{0} узлов",
++ "Cập nhật {0}": "Обновлено {0}",
++ "Thêm node tải lên": "Добавить узел загрузки",
++ "Thả ảnh vào đây hoặc bấm để tải lên": "Перетащите изображение сюда или нажмите, чтобы загрузить",
++ "Tải ảnh lên máy chủ thất bại.": "Не удалось загрузить изображение на сервер.",
++ "Đang tải không gian…": "Загрузка пространства…",
+ };
+ export default add;
+diff --git a/tool_znak_fe/src/i18n/zh.add.ts b/tool_znak_fe/src/i18n/zh.add.ts
+index 269e6ac..5c76b9d 100644
+--- a/tool_znak_fe/src/i18n/zh.add.ts
++++ b/tool_znak_fe/src/i18n/zh.add.ts
+@@ -1027,5 +1027,21 @@ const add: Record<string, string> = {
+  "Nhân viên (ERP)": "员工（ERP）",
+  "Nhân viên đăng nhập qua ERP: tên, email, mật khẩu và trạng thái do ERP quản lý. Ở đây chỉ gán cửa hàng và chức năng.": "员工通过 ERP 登录：姓名、邮箱、密码和状态由 ERP 管理。此处只分配店铺和功能。",
+  "Một cửa hàng có thể do nhiều người dùng quản lý. Admin (StoreHub Admin ở ERP) tự thấy mọi cửa hàng nên không cần thêm; nhân viên ERP chỉ thấy cửa hàng được thêm vào đây.": "一个店铺可由多个用户管理。管理员（ERP 中的 StoreHub Admin）自动看到所有店铺；ERP 员工只能看到在此添加的店铺。",
++ "Không gian sáng tạo": "空间",
++ "Xây dựng pipeline sinh ảnh/video dạng node và biến ý tưởng thành hiện thực.": "构建生成式工作流。",
++ "Của tôi": "我的",
++ "Được chia sẻ": "共享",
++ "Mẫu có sẵn": "模板",
++ "Luồng": "流程",
++ "Không gian mới": "新建空间",
++ "Không gian chưa đặt tên": "未命名",
++ "Chưa có không gian nào — tạo một cái để bắt đầu.": "暂无空间。",
++ "Xem thêm": "加载更多",
++ "{0} node": "{0} 个节点",
++ "Cập nhật {0}": "更新于 {0}",
++ "Thêm node tải lên": "添加上传节点",
++ "Thả ảnh vào đây hoặc bấm để tải lên": "将图片拖到此处，或点击上传",
++ "Tải ảnh lên máy chủ thất bại.": "上传到服务器失败。",
++ "Đang tải không gian…": "正在加载空间…",
+ };
+ export default add;
+diff --git a/tool_znak_fe/src/lib/api/http.ts b/tool_znak_fe/src/lib/api/http.ts
+index ecb437f..9c88c3f 100644
+--- a/tool_znak_fe/src/lib/api/http.ts
++++ b/tool_znak_fe/src/lib/api/http.ts
+@@ -71,14 +71,16 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
+   const qstr = qs.toString();
+   const url = `/api/proxy/${path.replace(/^\/+/, "")}${qstr ? `?${qstr}` : ""}`;
+ 
++  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+   const started = performance.now();
+   let res: Response;
+   try {
+     res = await fetch(url, {
+       method,
+       signal,
+-      headers: { Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...headers },
+-      body: body !== undefined ? JSON.stringify(body) : undefined,
++      // FormData: để trình duyệt tự đặt Content-Type kèm boundary, không JSON.stringify.
++      headers: { Accept: "application/json", ...(body !== undefined && !isForm ? { "Content-Type": "application/json" } : {}), ...headers },
++      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
+     });
+   } catch (e) {
+     if (e instanceof DOMException && e.name === "AbortError") throw e;
+diff --git a/tool_znak_fe/src/lib/api/spaces.ts b/tool_znak_fe/src/lib/api/spaces.ts
+new file mode 100644
+index 0000000..9a13cd0
+--- /dev/null
++++ b/tool_znak_fe/src/lib/api/spaces.ts
+@@ -0,0 +1,62 @@
++"use client";
++
++import { api } from "@/lib/api/http";
++
++export interface RawSpaceNode {
++  id: string;
++  type?: string;
++  position: { x: number; y: number };
++  width?: number;
++  height?: number;
++  data?: { src?: string; videoSrc?: string; selectedUrl?: string };
++}
++
++export interface RawSpace {
++  space_id: number;
++  name: string | null;
++  updated_at: string | null;
++  graph: { nodes?: RawSpaceNode[] } | null;
++}
++
++export interface SpacesPage {
++  data?: RawSpace[];
++  current_page?: number;
++  last_page?: number;
++}
++
++export interface CreatedSpace {
++  space_id?: number;
++}
++
++export interface SpaceGraph {
++  nodes?: unknown[];
++  edges?: unknown[];
++}
++
++export interface SpaceDetail {
++  space_id: number;
++  name: string | null;
++  graph: SpaceGraph | null;
++}
++
++export interface UploadedImage {
++  url?: string;
++  thumb_url?: string | null;
++  width?: number | null;
++  height?: number | null;
++}
++
++export const listSpaces = (page = 1, perPage = 30) => api.get<SpacesPage>("api/spaces", { page, per_page: perPage });
++
++export const createSpace = () => api.post<CreatedSpace>("api/spaces/space");
++
++export const getSpace = (spaceId: number | string) => api.get<SpaceDetail>(`api/spaces/space/${spaceId}`);
++
++export const saveSpaceGraph = (spaceId: number | string, graph: SpaceGraph) =>
++  api.put<unknown>(`api/spaces/space/${spaceId}/graph`, graph);
++
++export function uploadSpaceImage(file: File): Promise<UploadedImage> {
++  const form = new FormData();
++  form.append("image", file);
++  return api.post<UploadedImage>("api/spaces/image/upload-image", form);
++}
+diff --git a/tool_znak_fe/src/lib/server/backend.ts b/tool_znak_fe/src/lib/server/backend.ts
+index 900b25f..093bf0a 100644
+--- a/tool_znak_fe/src/lib/server/backend.ts
++++ b/tool_znak_fe/src/lib/server/backend.ts
+@@ -31,7 +31,7 @@ export interface BackendResult {
+ interface BackendOptions {
+   method?: string;
+   token?: string | null;
+-  body?: string | null;
++  body?: string | ArrayBuffer | null;
+   contentType?: string | null;
+   traceId: string;
+   clientIp?: string | null;
+diff --git a/tool_znak_fe/src/lib/server/proxy-path.ts b/tool_znak_fe/src/lib/server/proxy-path.ts
+index 8172d55..89bac1f 100644
+--- a/tool_znak_fe/src/lib/server/proxy-path.ts
++++ b/tool_znak_fe/src/lib/server/proxy-path.ts
+@@ -2,7 +2,9 @@
+  * Quy tắc cho BFF proxy `/api/proxy/*`: chỉ chuyển tiếp tới các đường dẫn backend đã cho phép, từ chối mọi thứ lạ
+  * (chống dùng proxy để gọi tới đường dẫn không dự định, path traversal, SSRF qua đường dẫn tuyệt đối).
+  */
+-const ALLOWED_PREFIXES = ["admin/", "api/auth/user-profile", "api/auth/change-pass"];
++const ALLOWED_PREFIXES = ["admin/", "api/auth/user-profile", "api/auth/change-pass", "api/spaces/"];
++/** Chỉ cho đúng nguyên văn, không mở rộng thành tiền tố (tránh lọt `api/spacesX`). */
++const ALLOWED_EXACT = ["api/spaces"];
+ 
+ export function resolveBackendPath(segments: string[]): string | null {
+   if (!segments.length) return null;
+@@ -10,6 +12,6 @@ export function resolveBackendPath(segments: string[]): string | null {
+     if (!seg || seg === "." || seg === ".." || /[\\\u0000-\u001f]/.test(seg) || seg.includes("://")) return null;
+   }
+   const joined = segments.join("/");
+-  if (!ALLOWED_PREFIXES.some((p) => joined === p || joined.startsWith(p))) return null;
++  if (!ALLOWED_EXACT.includes(joined) && !ALLOWED_PREFIXES.some((p) => joined === p || joined.startsWith(p))) return null;
+   return `/${joined}`;
+ }

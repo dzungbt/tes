@@ -1,0 +1,9 @@
+# Copy this file to <task>/environment/.dockerignore
+**/node_modules
+**/.next
+**/.git
+**/.DS_Store
+**/*.tsbuildinfo
+**/.idea
+**/.playwright-mcp
+**/logs

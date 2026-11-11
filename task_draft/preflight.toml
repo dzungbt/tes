@@ -1,0 +1,27 @@
+[[checks]]
+name = "Python and Git"
+command = "python3 -c 'import json, pathlib, subprocess' && git --version"
+
+[[checks]]
+name = "Starting repository"
+command = "test -d /app && git -C /app rev-parse --verify v0.1.0-init && git -C /app diff --exit-code v0.1.0-init"
+
+[[checks]]
+name = "Source and target repos present"
+command = "test -f /app/gen_img_fe/src/app/spaces-list/page.tsx && test -f /app/gen_img_fe/src/app/spaces/page.tsx && test -f /app/gen_img_fe/src/components/spaces/nodes/UploadNode.tsx && test -f /app/tool_znak_fe/package.json"
+
+[[checks]]
+name = "Node 22 and target dependencies installed"
+command = "node -e 'process.exit(Number(process.versions.node.split(\".\")[0]) >= 22 ? 0 : 1)' && test -x /app/tool_znak_fe/node_modules/.bin/vitest && test -f /app/tool_znak_fe/node_modules/@xyflow/react/package.json"
+
+[[checks]]
+name = "No nested git repositories"
+command = "test -z \"$(find /app -name .git -not -path '/app/.git' -not -path '*/node_modules/*' -prune -print)\""
+
+[[checks]]
+name = "Target page does not exist yet"
+command = "test ! -e '/app/tool_znak_fe/src/app/(app)/spaces-list' && test ! -e '/app/tool_znak_fe/src/app/(app)/spaces' && test ! -e /app/tool_znak_fe/src/lib/api/spaces.ts"
+
+[[checks]]
+name = "Vitest and antd work at the start"
+command = "cd /app/tool_znak_fe && npx --no-install vitest run src/components/DatePicker.ui.test.tsx"
