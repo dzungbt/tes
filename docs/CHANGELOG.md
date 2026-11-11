@@ -107,3 +107,9 @@ Chưa kiểm chứng:
 Đã tạo repo git cục bộ ở `tool_xu_ly_san/` (nhánh `main`) với `.gitignore` chỉ cho phép `task_draft/` và `docs/`; các thư mục khác (`tool`, `tool_fe`, `token_rotator`, file `.dmg`, `.xlsx`…) bị bỏ qua. Đã quét `task_draft/` và `docs/` tìm khoá/mật khẩu: không có kết quả.
 Đã kiểm chứng: remote `https://github.com/dzungbt/tes.git` tồn tại, đang trống, và là repo CÔNG KHAI (`private: false`).
 Chưa làm: CHƯA push lên remote vì `task_draft/` chứa bài giải tham chiếu và test ẩn của task; chờ người dùng quyết định (đặt repo private hoặc chỉ đẩy phần không nhạy cảm).
+
+## 2026-11-11 — Đã push `task_draft/` và `docs/` lên GitHub
+
+Người dùng xác nhận đẩy lên repo CÔNG KHAI `dzungbt/tes` dù biết nó chứa bài giải tham chiếu và test ẩn. Remote đổi sang SSH (`git@github.com:dzungbt/tes.git`) vì HTTPS không có thông tin đăng nhập trên máy này.
+Đã kiểm chứng: `git ls-remote origin` trả về `refs/heads/main` = commit `0effe11` (17 file).
+Lưu ý: commit chứa `solution/` và `tests/` nên ai cũng đọc được; xoá sau này không chắc gỡ hết bản đã bị cache.
